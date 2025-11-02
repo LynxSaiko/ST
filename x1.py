@@ -54,12 +54,25 @@ def get_random_banner():
     new_lines = [line[:int(cols)] for line in lines] if scale < 1.0 else [line.center(cols) for line in lines]
     return colorize_banner("\n".join(new_lines)) + "\n\n"
 
-# ========== Animation (TETAP SAMA) ==========
+# ========== Animation (SUDAH DIPERBAIKI) ==========
 class SingleLineMarquee:
-    def __init__(self, text="[*] Starting the Lazy Framework Console...", text_speed: float = 6.06, spinner_speed: float = 0.06):
+    def __init__(self, 
+                 text="Starting the Lazy Framework Console...", 
+                 text_speed: float = 0.06, 
+                 spinner_speed: float = 0.06,
+                 reset_delay: float = 0.0, # Waktu jeda (detik) sebelum loop berikutnya
+                 max_loops: int = 1):       # Maksimal pengulangan (1 = berjalan sekali)
+        
         self.text, self.spinner = text, itertools.cycle(['|', '/', '-', '\\'])
         self.alt_text = ''.join(c.lower() if i % 2 == 0 else c.upper() for i, c in enumerate(text))
-        self.text_speed, self.spinner_speed = max(0.01, text_speed), max(0.01, spinner_speed)
+        
+        self.text_speed = max(0.01, text_speed)
+        self.spinner_speed = max(0.01, spinner_speed)
+        self.reset_delay = max(0.0, reset_delay)
+        
+        self.max_loops = max_loops
+        self.current_loop = 0
+        
         self._stop, self._pos, self._thread = threading.Event(), 0, None
 
     def _compose(self, pos, spin):
@@ -68,31 +81,64 @@ class SingleLineMarquee:
     def _run(self):
         L = len(self.text)
         last_time = time.time()
+        
         while not self._stop.is_set():
             spin = next(self.spinner)
             now = time.time()
-            if self._pos < L and (now - last_time) >= self.text_speed:
-                self._pos += 1
-                last_time = now
-            sys.stdout.write('\r' + self._compose(self._pos, spin))
+            
+            # 1. Animasi Sedang Berjalan (self._pos < L)
+            if self._pos < L:
+                if (now - last_time) >= self.text_speed:
+                    self._pos += 1
+                    last_time = now
+                sys.stdout.write('\r' + self._compose(self._pos, spin))
+                sys.stdout.flush()
+                time.sleep(self.spinner_speed)
+            
+            # 2. Animasi Sudah Selesai (self._pos >= L)
+            else:
+                # Tambah hitungan loop hanya sekali setelah selesai scroll
+                if self._pos == L: 
+                    self.current_loop += 1
+                
+                # Pastikan teks penuh ditampilkan
+                sys.stdout.write('\r' + self.text + '   ') 
+                sys.stdout.flush()
+
+                # Cek apakah sudah mencapai batas loop (Kondisi Berhenti)
+                if self.current_loop >= self.max_loops:
+                    break 
+                
+                # Jika belum mencapai batas: lakukan delay dan reset
+                if self.reset_delay > 0.0:
+                    time.sleep(self.reset_delay)
+                    
+                    self._pos = 0 # Reset posisi
+                    last_time = time.time()
+                    
+                else:
+                    break 
+                    
+        # Baris ini memastikan output akhir yang bersih setelah loop berhenti
+        if not self._stop.is_set():
+            sys.stdout.write('\r' + self.text + '\n')
             sys.stdout.flush()
-            if self._pos >= L:
-                break
-            time.sleep(self.spinner_speed)
-        sys.stdout.write('\r' + self.text + '\n')
-        sys.stdout.flush()
 
     def start(self):
         if not (self._thread and self._thread.is_alive()):
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
+            
     def wait(self):
-        if self._thread: self._thread.join()
+        if self._thread: 
+            self._thread.join()
+            
     def stop(self):
         self._stop.set()
-        if self._thread: self._thread.join()
+        if self._thread: 
+            self._thread.join()
 
-# ========== Core Framework ==========
+# ========== Core Framework (TETAP SAMA) ==========
 @dataclass
 class ModuleInstance:
     name: str
@@ -301,9 +347,7 @@ class LazyFramework:
         except Exception as e:
             console.print(f"Run error: {e}", style="red")
 
-    # === SEMUA COMMAND LAIN TETAP SAMA (TAMPILAN TIDAK DIUBAH) ===
-    # cmd_help, cmd_payloads, cmd_show, _show_all_modules, _show_modules_by_category, dll
-    # → DIBIARKAN 100% SAMA SEPERTI ASLI
+    # === SEMUA COMMAND LAIN TETAP SAMA ===
 
     def cmd_help(self, args):
         commands = [
@@ -412,7 +456,7 @@ class LazyFramework:
             self._show_modules_by_category(category)
         else:
             console.print(f"Unknown show subcommand: {subcommand}", style="red")
-            console.print("Usage: show modules|payloads", style="yellow")
+            console.print("Usage: show modules|payloads|modules/<category>", style="yellow")
 
     def _show_all_modules(self):
         terminal_width = shutil.get_terminal_size((80, 20)).columns
@@ -688,7 +732,11 @@ class LazyFramework:
         console.print(get_random_banner())
         while True:
             try:
-                prompt = f"lzf(\x1b[41m\x1b[97m{self.loaded_module.name}\x1b[0m)> " if self.loaded_module else "lzf> "
+                if self.loaded_module:
+                    module_name_display = self.loaded_module.name.replace("modules/", "")
+                    prompt = f"lzf(\x1b[41m\x1b[97m{module_name_display}\x1b[0m)> " 
+                else:
+                    prompt = "lzf> "
                 line = input(prompt)
             except (EOFError, KeyboardInterrupt):
                 console.print("\n[bold green]Exiting Lazy Framework...[/bold green]")
@@ -703,12 +751,21 @@ class LazyFramework:
                 break
             getattr(self, f"cmd_{cmd}", lambda a: console.print("Unknown command", style="red"))(args)
 
-# ========== Main ==========
+# ========== Main (DIUBAH UNTUK DEMONSTRASI) ==========
 def main():
-    anim = SingleLineMarquee("[*] Starting the Lazy Framework Console...", 0.05, 0.06)
+    # Perubahan di sini: Contoh penggunaan fitur reset_delay dan max_loops
+    anim = SingleLineMarquee(
+        "Starting the Lazy Framework Console...", 
+        text_speed=0.60, 
+        spinner_speed=0.06,
+        reset_delay=1.0, # Jeda 1 detik antar ulangan
+        max_loops=2      # Berjalan 2 kali lalu berhenti
+    )
     anim.start()
     anim.wait()
-    time.sleep(0.6)
+    
+    # time.sleep(0.6) <-- Dihapus karena delay sudah diatur di reset_delay
+    
     os.system("cls" if platform.system().lower() == "windows" else "clear")
     load_banners_from_folder()
     LazyFramework().repl()
